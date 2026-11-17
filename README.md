@@ -88,14 +88,33 @@ grab.bat <详情页URL> --probe
 
 | probe 输出 | 改哪里 |
 |---|---|
-| `目录链接: 0` | `pipe.mjs` 顶部 `HEAD_RE`（目录链接的文本特征） |
-| `正文容器: 未识别` | `CONTENT_HINTS` 数组，把该站正文容器的 id/class 加进去 |
-| 正文能抓但夹广告 | `AD_LINE` 里补关键词 |
+| `目录链接: 0` | `headRe`（目录链接的文本特征） |
+| `正文容器: 未识别` | `contentHints` 数组，把该站正文容器的 id/class 加进去 |
+| 正文能抓但夹广告 | `adLineAdd` 里补关键词 |
 | 书名/简介是空的 | 站点没有 og 元标签，用 `--name` 手动给 |
 
-三个常量都在 `pipe.mjs` 开头 20 行内，改完直接重跑，不用重新打包。
+**优先写站点配置，不要改代码。** 在 `sites/<host>.json` 里放该站要覆盖的项，运行时自动加载（命中会打印 `站点规则: <host> <- sites/<host>.json`）：
 
-正文容器识别顺序是按 `CONTENT_HINTS` 逐个试，命中后要求文本 > 200 字才算数，避免抓到空壳 div。
+```json
+{
+  "contentHints": ["chaptertext"],
+  "adLineAdd": ["本站网址", "本章阅读完毕"],
+  "nextLabelRe": "^(下一页|下页)"
+}
+```
+
+可覆盖项（缺省用 `pipe.mjs` 里的 `DEFAULT_*`）：
+
+| 键 | 类型 | 说明 |
+|---|---|---|
+| `headRe` / `headFlags` | 字符串 | 章节标题正则源，如 `^第\\s*[0-9]+\\s*章`；默认已支持「第126-127章」「第210-211合章」 |
+| `contentHints` | 数组 | 正文容器 id/class 关键字，**按顺序**试，命中后要求文本 > 200 字才算数 |
+| `adLine` | 数组 | 整体替换默认广告词表（正则源字符串） |
+| `adLineAdd` | 数组 | 推荐：在默认词表后追加站点特有词 |
+| `nextLabelRe` | 字符串 | 章内翻页链接的文本特征，默认 `^(下一页|下页)` |
+| `ua` | 字符串 | 该站专用 UA |
+
+没有 `sites/<host>.json` 时全部走默认值，所以只改配置就能适配新站，`pipe.mjs` 不必动。
 
 ---
 
@@ -163,6 +182,7 @@ setup-runtime.bat
 |---|---|
 | `grab.bat` | 入口，固定调用便携 Node |
 | `pipe.mjs` | 主程序：探测、采集、装配、净化、验收 |
+| `sites/<host>.json` | 站点规则外置，覆盖 headRe / contentHints / adLine / nextLabelRe / ua |
 | `fix_chapters.mjs` | 已有乱序/交错 TXT 的章节目录修复 |
 | `scan_ads.mjs` | 成品广告与可疑行审计 |
 | `runtime/` | 便携 Node v22.23.5 |

@@ -173,7 +173,7 @@
 
 - [ ] 站内搜索：`--search 关键词` → 自动取第一条结果进主流程。
 - [ ] EPUB 输出：带封面、卷、目录，比 TXT 更稳。
-- [ ] 站点规则外置：`sites/<host>.json` 覆盖 `HEAD_RE` / `CONTENT_HINTS` / `AD_LINE`，改规则不用动代码。
+- [x] 站点规则外置：`sites/<host>.json` 覆盖 `headRe` / `contentHints` / `adLine(+Add)` / `nextLabelRe` / `ua`，改规则不用动代码（2026-11-17 完成，见第七节）。
 - [ ] `--doctor` 自检：Node 版本、GBK 支持、目录可写、目标站连通性。
 - [ ] 断章检测：与目录比对字数分布，异常短的章自动重试。
 - [ ] 可选 Web UI（`server.mjs` + 单页），复用同一套函数，不改变抓取逻辑。
@@ -209,3 +209,40 @@
 2. **`--probe` 只看"有没有命中"不够，要看命中的是哪个 id**。命中 `main` 比未命中更危险。
 3. 净化词表要覆盖**同一站点的多种提示语**（中间页 vs 末页不一样），且清理放在分页拼接之后。
 4. 目录条数要能解释差异（公告、合并章、番外），否则就是 `HEAD_RE` 漏了。
+
+---
+
+## 七、2026-11-17 晚：站点规则外置（sites/<host>.json）
+
+上一节把 4 处补丁写死在代码里，第二个站点来了还得再改一次。这次把这几个旋钮挪到配置文件。
+
+### 实现
+
+- 运行时按 URL 的 host 找 `sites/<host>.json`，命中打印 `站点规则: <host> <- sites/<host>.json`，找不到就用 `DEFAULT_*`。
+- JSON 不能存 RegExp，所以正则一律写**字符串**，代码里 `new RegExp(源, flags)` 编译。
+- 可覆盖：`headRe` / `headFlags` / `contentHints` / `adLine` / `adLineAdd` / `nextLabelRe` / `ua`。
+- `adLine` 整体替换默认词表；`adLineAdd` 只在默认词表后追加（推荐，免得漏掉通用词）。
+- 默认值同步吸收了上一节的通用改进（`chaptertext` 优先、`content` 沉底、合并章 `HEAD_RE`、末页提示语、`nextLabelRe`），所以**没有站点配置也能正常跑**。
+
+### 首个用例
+
+`sites/m.libahao2.com.json`：
+
+```json
+{
+  "contentHints": ["chaptertext"],
+  "adLineAdd": ["本站网址", "本章阅读完毕"],
+  "nextLabelRe": "^(下一页|下页)"
+}
+```
+
+只写该站特有的 3 项，其余走默认。
+
+### 验证
+
+| 场景 | 结果 |
+|---|---|
+| 有配置 | 打印 `站点规则: m.libahao2.com`，目录 304、容器 `#chaptertext`、2 章 6549 字、净化 10 行 |
+| 无配置（临时改名 `sites/`） | 不打印该行，目录仍 304、容器仍 `#chaptertext`（默认值兜住） |
+
+结论：**适配新站优先写 `sites/<host>.json`，`pipe.mjs` 尽量不动**；一条站点规则就是一份可提交、可对比的适配记录。

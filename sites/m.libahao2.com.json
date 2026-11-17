@@ -1,0 +1,11 @@
+{
+  "_comment": "篱笆好文学移动站。详情与 305 章目录同页；一章切 5 页（1.html → 1_1 … 1_4），末页链接文本变「下一章」；正文在 #chapterText，外层 #chapterContent 之外还有 .mr-end-note 提示语。",
+  "_updated": "2026-11-17",
+  "_probeResult": "目录 304 条(305 减 1 条上架感言)；正文容器 #chapterText；章均约 3200 字(5 页全拼)",
+
+  "contentHints": ["chaptertext"],
+
+  "adLineAdd": ["本站网址", "本章阅读完毕"],
+
+  "nextLabelRe": "^(下一页|下页)"
+}

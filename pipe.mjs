@@ -24,10 +24,39 @@ const JOBS = Math.max(1, +opt('jobs', 2));
 const DELAY = +opt('delay', 400);
 const OUTDIR = path.resolve(HERE, opt('out', 'out'));
 const BOOKROOT = path.resolve(HERE, opt('books', 'books'));
-const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+// ---------- 站点规则外置 ----------
+// sites/<host>.json 可覆盖以下任意一项，缺省用默认值。JSON 里正则一律写字符串。
+//   headRe / headFlags / contentHints / adLine / nextLabelRe / ua
+const DEFAULT_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
 // 支持「第126-127章」「第210-211合章」这类合并章写法
-const HEAD_RE = /^第\s*[0-9零一二三四五六七八九十百千两〇]+(?:\s*[-~～—至到]\s*[0-9零一二三四五六七八九十百千两〇]+)?\s*合?\s*[章节回]/;
-const CONTENT_HINTS = ['chaptertext', 'chaptercontent', 'rtext', 'novelcontent', 'acontent', 'booktxt', 'htmlContent', 'content1', 'content', 'txt'];
+const DEFAULT_HEAD_RE = '^第\\s*[0-9零一二三四五六七八九十百千两〇]+(?:\\s*[-~～—至到]\\s*[0-9零一二三四五六七八九十百千两〇]+)?\\s*合?\\s*[章节回]';
+// 站点真实容器优先，泛化词 content 沉到最后，避免命中 main-content 之类外壳
+const DEFAULT_CONTENT_HINTS = ['chaptertext', 'chaptercontent', 'rtext', 'novelcontent', 'acontent', 'booktxt', 'htmlContent', 'content1', 'content', 'txt'];
+const DEFAULT_AD_LINE = [
+  'https?:\\/\\/\\S+',
+  '\\b(?:www\\.)?[a-z0-9-]{2,}\\.(?:com|net|org|cn|cc|la|tv|info|xyz|top|vip|me|co|tw|io|biz)(?![a-z0-9])',
+  '(?:本站|域名|永久地址|请记住|加入书签|收藏本站|笔趣阁|顶点小说|最新章节|最快更新|全文阅读|免费阅读|无弹窗|手机阅读|手机版|扫码|公众号|下载APP|章节报错|返回目录|本章未完|请点击下一页|本章阅读完毕|本章已完|本章结束|已是最新章节)',
+];
+const DEFAULT_NEXT_LABEL = '^(下一页|下页)';
+
+const SITE = (() => {
+  try {
+    const host = new URL(URL_ARG).host;
+    const f = path.join(HERE, 'sites', host + '.json');
+    if (!fs.existsSync(f)) return {};
+    const cfg = JSON.parse(fs.readFileSync(f, 'utf8')) || {};
+    console.log('站点规则:', host, '<- sites/' + host + '.json');
+    return cfg;
+  } catch (e) {
+    console.error('[warn] 站点规则读取失败，改用默认值:', e.message);
+    return {};
+  }
+})();
+
+const UA = SITE.ua || DEFAULT_UA;
+const HEAD_RE = new RegExp(SITE.headRe || DEFAULT_HEAD_RE, SITE.headFlags || '');
+const CONTENT_HINTS = Array.isArray(SITE.contentHints) && SITE.contentHints.length ? SITE.contentHints : DEFAULT_CONTENT_HINTS;
+const NEXT_LABEL_RE = new RegExp(SITE.nextLabelRe || DEFAULT_NEXT_LABEL, 'i');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -131,11 +160,11 @@ async function getHtml(url) {
 }
 
 // ---------- 净化 ----------
+// adLine 整体替换默认词表；只用 adLineAdd 追加站点特有词表（推荐）
 const AD_LINE = [
-  /https?:\/\/\S+/i,
-  /\b(?:www\.)?[a-z0-9-]{2,}\.(?:com|net|org|cn|cc|la|tv|info|xyz|top|vip|me|co|tw|io|biz)(?![a-z0-9])/i,
-  /(?:本站|域名|永久地址|请记住|加入书签|收藏本站|笔趣阁|顶点小说|最新章节|最快更新|全文阅读|免费阅读|无弹窗|手机阅读|手机版|扫码|公众号|下载APP|章节报错|返回目录|本章未完|请点击下一页|本章阅读完毕|本章已完|本章结束|已是最新章节)/,
-];
+  ...(Array.isArray(SITE.adLine) && SITE.adLine.length ? SITE.adLine : DEFAULT_AD_LINE),
+  ...(Array.isArray(SITE.adLineAdd) ? SITE.adLineAdd : []),
+].map(s => new RegExp(s, 'i'));
 function cleanText(t) {
   const dropped = [];
   const kept = [];
@@ -204,7 +233,7 @@ async function worker() {
         // 链接文本常带子标签（如「下一页 <span>›</span>」），必须先去标签再比对
         const nx = [...html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
           .map(a => ({ href: a[1], label: a[2].replace(/<[^>]*>/g, '').replace(/\s+/g, '') }))
-          .find(a => /^(下一页|下页)/.test(a.label))?.href;
+          .find(a => NEXT_LABEL_RE.test(a.label))?.href;
         if (!nx) break;
         const abs = new URL(nx, ch.url).href;
         const prefix = ch.url.replace(/_\d+(\.[a-z]+)?$/i, '').replace(/(\.[a-z]+)$/i, '');
