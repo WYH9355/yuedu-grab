@@ -25,8 +25,9 @@ const DELAY = +opt('delay', 400);
 const OUTDIR = path.resolve(HERE, opt('out', 'out'));
 const BOOKROOT = path.resolve(HERE, opt('books', 'books'));
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
-const HEAD_RE = /^第\s*[0-9零一二三四五六七八九十百千两〇]+\s*[章节回]/;
-const CONTENT_HINTS = ['rtext', 'content', 'chaptercontent', 'acontent', 'novelcontent', 'booktxt', 'htmlContent', 'content1', 'txt'];
+// 支持「第126-127章」「第210-211合章」这类合并章写法
+const HEAD_RE = /^第\s*[0-9零一二三四五六七八九十百千两〇]+(?:\s*[-~～—至到]\s*[0-9零一二三四五六七八九十百千两〇]+)?\s*合?\s*[章节回]/;
+const CONTENT_HINTS = ['chaptertext', 'chaptercontent', 'rtext', 'novelcontent', 'acontent', 'booktxt', 'htmlContent', 'content1', 'content', 'txt'];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -98,7 +99,7 @@ function parseToc(html, base) {
   const uniq = list.filter(c => !seen.has(c.url) && seen.add(c.url));
   // 解析章号，若顺序错乱则按章号重排（站点常把"最新章节"放最前）
   const numOf = t => {
-    const s = t.match(/^第\s*([0-9零一二三四五六七八九十百千两〇]+)\s*[章节回]/)?.[1];
+    const s = t.match(/^第\s*([0-9零一二三四五六七八九十百千两〇]+)(?:\s*[-~～—至到]\s*[0-9零一二三四五六七八九十百千两〇]+)?\s*合?\s*[章节回]/)?.[1];
     if (!s) return null;
     if (/^\d+$/.test(s)) return +s;
     const D = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }, U = { 十: 10, 百: 100, 千: 1000 };
@@ -133,7 +134,7 @@ async function getHtml(url) {
 const AD_LINE = [
   /https?:\/\/\S+/i,
   /\b(?:www\.)?[a-z0-9-]{2,}\.(?:com|net|org|cn|cc|la|tv|info|xyz|top|vip|me|co|tw|io|biz)(?![a-z0-9])/i,
-  /(?:本站|域名|永久地址|请记住|加入书签|收藏本站|笔趣阁|顶点小说|最新章节|最快更新|全文阅读|免费阅读|无弹窗|手机阅读|手机版|扫码|公众号|下载APP|章节报错|返回目录|本章未完|请点击下一页)/,
+  /(?:本站|域名|永久地址|请记住|加入书签|收藏本站|笔趣阁|顶点小说|最新章节|最快更新|全文阅读|免费阅读|无弹窗|手机阅读|手机版|扫码|公众号|下载APP|章节报错|返回目录|本章未完|请点击下一页|本章阅读完毕|本章已完|本章结束|已是最新章节)/,
 ];
 function cleanText(t) {
   const dropped = [];
@@ -150,7 +151,7 @@ function cleanText(t) {
 }
 
 const slug = s => s.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60);
-const numOfTitle = t => t.match(/^第\s*([0-9零一二三四五六七八九十百千两〇]+)\s*[章节回]/)?.[1] ?? '';
+const numOfTitle = t => t.match(/^第\s*([0-9零一二三四五六七八九十百千两〇]+)(?:\s*[-~～—至到]\s*[0-9零一二三四五六七八九十百千两〇]+)?\s*合?\s*[章节回]/)?.[1] ?? '';
 
 // ---------- 主流程 ----------
 const base = URL_ARG;
@@ -200,10 +201,15 @@ async function worker() {
       let text = picked.text;
       // 同章分页：只跟 _N 形式且同前缀
       for (let p = 0; p < 8; p++) {
-        const nx = html.match(/<a[^>]+href=["']([^"']+)["'][^>]*>\s*(?:下一页|下页)\s*<\/a>/i)?.[1];
+        // 链接文本常带子标签（如「下一页 <span>›</span>」），必须先去标签再比对
+        const nx = [...html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+          .map(a => ({ href: a[1], label: a[2].replace(/<[^>]*>/g, '').replace(/\s+/g, '') }))
+          .find(a => /^(下一页|下页)/.test(a.label))?.href;
         if (!nx) break;
         const abs = new URL(nx, ch.url).href;
-        if (!abs.startsWith(ch.url.replace(/_\d+(\.\w+)?$/, '').replace(/\.\w+$/, ''))) break;
+        const prefix = ch.url.replace(/_\d+(\.[a-z]+)?$/i, '').replace(/(\.[a-z]+)$/i, '');
+        // 只认同章的 _N 分页，末页的「下一章」以及邻章链接一律不跟
+        if (!/_\d+(\.html?)?$/i.test(abs) || !abs.startsWith(prefix)) break;
         const nh = await getHtml(abs);
         const np = pickContent(nh);
         if (!np) break;
@@ -234,7 +240,7 @@ for (let i = 0; i < toc.length; i++) {
   const { text, dropped } = cleanText(fs.readFileSync(file, 'utf8'));
   droppedAll.push(...dropped);
   // 站点目录常有重号/乱号，输出统一顺延编号，标题取原名去掉章号前缀
-  const nameBody = toc[i].title.replace(/^第\s*[0-9零一二三四五六七八九十百千两〇]+\s*[章节回]\s*[-—:：·、]?\s*/, '').trim();
+  const nameBody = toc[i].title.replace(/^第\s*[0-9零一二三四五六七八九十百千两〇]+(?:\s*[-~～—至到]\s*[0-9零一二三四五六七八九十百千两〇]+)?\s*合?\s*[章节回]\s*[-—:：·、]?\s*/, '').trim();
   const title = nameBody ? `第${i + 1}章 ${nameBody}` : `第${i + 1}章`;
   parts.push(`${title}\n${text}`);
   stat.push({ i: i + 1, title, len: text.replace(/\s/g, '').length });
