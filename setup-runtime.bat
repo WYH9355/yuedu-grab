@@ -1,53 +1,54 @@
 @echo off
-chcp 65001 >nul
 setlocal
 set "DIR=%~dp0"
 set "VER=22.23.5"
 set "ZIP=node-v%VER%-win-x64.zip"
 
-if exist "%DIR%runtime\node.exe" (
-  echo [OK] runtime 已存在，无需重建
-  pause
-  exit /b 0
-)
+if exist "%DIR%runtime\node.exe" goto already
 
 where curl >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] 缺少 curl，需要 Windows 10 1803 以上
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto nocurl
 where tar >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] 缺少 tar，需要 Windows 10 1809 以上
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto notar
 
-echo 正在下载 Node %VER% win-x64（约 34MB）...
+echo Downloading Node %VER% win-x64 (about 34MB) ...
 curl -L --retry 2 --max-time 900 -o "%DIR%node.zip" "https://nodejs.org/dist/v%VER%/%ZIP%"
-if errorlevel 1 (
-  echo [ERROR] 下载失败，可手动下载后解压到 %DIR%runtime
-  echo         https://nodejs.org/dist/v%VER%/%ZIP%
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto dlfail
 
-echo 正在解压...
+echo Extracting ...
 tar -xf "%DIR%node.zip" -C "%DIR%"
-if errorlevel 1 (
-  echo [ERROR] 解压失败
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto unfail
 
 move /y "%DIR%node-v%VER%-win-x64" "%DIR%runtime" >nul
 del "%DIR%node.zip"
+if exist "%DIR%runtime\node.exe" goto ok
+goto unfail
 
-if exist "%DIR%runtime\node.exe" (
-  echo [OK] 运行时已就绪
-  "%DIR%runtime\node.exe" -v
-) else (
-  echo [ERROR] 解压后未找到 runtime\node.exe
-)
+:already
+echo [OK] runtime already exists, nothing to do
+goto end
+
+:nocurl
+echo [ERROR] curl not found. Need Windows 10 1803 or newer
+goto end
+
+:notar
+echo [ERROR] tar not found. Need Windows 10 1809 or newer
+goto end
+
+:dlfail
+echo [ERROR] download failed. Download manually:
+echo         https://nodejs.org/dist/v%VER%/%ZIP%
+echo         unzip it and rename the folder to runtime
+goto end
+
+:unfail
+echo [ERROR] extract failed
+goto end
+
+:ok
+echo [OK] runtime ready
+"%DIR%runtime\node.exe" -v
+
+:end
 pause
