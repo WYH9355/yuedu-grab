@@ -1,0 +1,11 @@
+# 便携运行时：92MB 二进制，用 setup-runtime.bat 重建
+runtime/
+
+# 抓取缓存与成品（含版权文本，不入库）
+books/
+out/
+
+# 临时文件
+*.zip
+*.log
+node_modules/
